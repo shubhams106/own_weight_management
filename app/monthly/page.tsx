@@ -28,14 +28,22 @@ const EXERCISE_LABELS = {
 };
 
 export default function MonthlyView() {
-  const [exercises, setExercises] = useState<Exercise[]>(() => {
-    const saved = localStorage.getItem('exercises');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  // const [exercises, setExercises] = useState<Exercise[]>(() => {
+  //   const saved = localStorage.getItem('exercises');
+  //   return saved ? JSON.parse(saved) : [];
+  // });
+
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedExercise, setSelectedExercise] = useState<'boxing' | 'cycle' | 'gym' | 'walk' | 'swimming'>('gym');
   const [selectedIntensity, setSelectedIntensity] = useState<'low' | 'moderate' | 'high'>('moderate');
   const [selectedDuration, setSelectedDuration] = useState(30);
+  useEffect(() => {
+  const saved = localStorage.getItem('exercises');
+  if (saved) {
+    setExercises(JSON.parse(saved));
+  }
+}, []);
 
   useEffect(() => {
     localStorage.setItem('exercises', JSON.stringify(exercises));
