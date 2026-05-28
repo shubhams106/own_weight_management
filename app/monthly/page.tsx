@@ -28,22 +28,22 @@ const EXERCISE_LABELS = {
 };
 
 export default function MonthlyView() {
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  // const [exercises, setExercises] = useState<Exercise[]>(() => {
-  //   const saved = localStorage.getItem('exercises');
-  //   return saved ? JSON.parse(saved) : [];
-  // });
+  const [exercises, setExercises] = useState<Exercise[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('exercises');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedExercise, setSelectedExercise] = useState<'boxing' | 'cycle' | 'gym' | 'walk' | 'swimming'>('gym');
   const [selectedIntensity, setSelectedIntensity] = useState<'low' | 'moderate' | 'high'>('moderate');
   const [selectedDuration, setSelectedDuration] = useState(30);
-  useEffect(() => {
-  const saved = localStorage.getItem('exercises');
-  if (saved) {
-    setExercises(JSON.parse(saved));
-  }
-}, []);
+  // Initial exercises are loaded via lazy useState initializer to avoid
+  // calling setState synchronously inside an effect.
 
   useEffect(() => {
     localStorage.setItem('exercises', JSON.stringify(exercises));

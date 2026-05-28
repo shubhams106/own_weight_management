@@ -95,8 +95,31 @@ const getFormattedTime = (timestamp: number) => {
 };
 
 export default function DailyTracker() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const getPersistedProfile = () => {
+    if (typeof window === 'undefined') return null;
+    const saved = localStorage.getItem('currentUser');
+    if (!saved) return null;
+    try {
+      return JSON.parse(saved) as UserProfile;
+    } catch {
+      return null;
+    }
+  };
+
+  const getInitialShowProfileModal = () => {
+    if (typeof window === 'undefined') return false;
+    const saved = localStorage.getItem('currentUser');
+    if (!saved) return true;
+    try {
+      JSON.parse(saved);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  const [profile, setProfile] = useState<UserProfile | null>(() => getPersistedProfile());
+  const [showProfileModal, setShowProfileModal] = useState(() => getInitialShowProfileModal());
   const [formData, setFormData] = useState<UserProfile>({
     email: 'singlas106@gmail.com',
     height: 175,
@@ -147,20 +170,6 @@ export default function DailyTracker() {
   const [selectedFood, setSelectedFood] = useState<FoodItem>(FOOD_DATABASE[0]);
   const [foodTiming, setFoodTiming] = useState('now');
   const [waterTiming, setWaterTiming] = useState('now');
-
-  useEffect(() => {
-    const saved = localStorage.getItem('currentUser');
-    if (saved) {
-      try {
-        const parsedProfile = JSON.parse(saved);
-        setProfile(parsedProfile);
-      } catch {
-        setShowProfileModal(true);
-      }
-    } else {
-      setShowProfileModal(true);
-    }
-  }, []);
 
   useEffect(() => {
     if (!profile) return;
@@ -423,7 +432,7 @@ export default function DailyTracker() {
         <div className={`${statusColor} border-4 ${statusBorder} rounded-lg p-6 mb-6`}>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-slate-800 mb-2">Today's Progress</h2>
+              <h2 className="text-xl font-semibold text-slate-800 mb-2">Today&apos;s Progress</h2>
               <div className="text-3xl font-bold text-slate-700">
                 {Math.round(overallPercent)}%
               </div>
@@ -661,7 +670,7 @@ export default function DailyTracker() {
             </div>
 
             <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-slate-800 mb-4">Today's Log ({totalLogCount})</h3>
+              <h3 className="text-lg font-semibold text-slate-800 mb-4">Today&apos;s Log ({totalLogCount})</h3>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {combinedLogs.length === 0 ? (
                   <p className="text-slate-500 text-center py-8">No logs yet. Add food or water to get started!</p>
