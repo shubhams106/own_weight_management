@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 interface FoodItem {
   name: string;
@@ -94,7 +95,22 @@ const getFormattedTime = (timestamp: number) => {
   });
 };
 
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 export default function DailyTracker() {
+  const searchParams = useSearchParams();
+  const selectedDateKey = searchParams.get('date') || formatLocalDate(new Date());
+  const selectedDate = parseLocalDate(selectedDateKey);
   const getPersistedProfile = () => {
     if (typeof window === 'undefined') return null;
     const saved = localStorage.getItem('currentUser');
@@ -129,9 +145,9 @@ export default function DailyTracker() {
     activityLevel: 'lightly_active',
   });
 
-  const getStorageKey = (key: string) => {
+  const getStorageKey = useCallback((key: string) => {
     return profile ? `${key}_${profile.email}` : key;
-  };
+  }, [profile]);
 
   const [logs, setLogs] = useState<LogEntry[]>(() => {
     if (typeof window === 'undefined' || !profile) return [];
@@ -139,16 +155,13 @@ export default function DailyTracker() {
     if (!saved) return [];
     try {
       const parsed = JSON.parse(saved);
-      const today = new Date().toDateString();
-      return parsed
-        .filter((log: any) => new Date(log.timestamp).toDateString() === today)
-        .map((log: any) => ({
-          id: log.id,
-          item: log.item,
-          time: log.time,
-          timestamp: log.timestamp,
-          type: 'food',
-        }));
+      return parsed.map((log: any) => ({
+        id: log.id,
+        item: log.item,
+        time: log.time,
+        timestamp: log.timestamp,
+        type: 'food',
+      }));
     } catch {
       return [];
     }
@@ -159,9 +172,7 @@ export default function DailyTracker() {
     const saved = localStorage.getItem(getStorageKey('waterLogs'));
     if (!saved) return [];
     try {
-      const parsed = JSON.parse(saved);
-      const today = new Date().toDateString();
-      return parsed.filter((log: any) => new Date(log.timestamp).toDateString() === today);
+      return JSON.parse(saved);
     } catch {
       return [];
     }
@@ -188,7 +199,7 @@ export default function DailyTracker() {
       type: 'food' as const,
     }));
     localStorage.setItem(getStorageKey('nutritionLogs'), JSON.stringify([...filtered, ...newLogs]));
-  }, [logs, profile]);
+  }, [logs, profile, getStorageKey]);
 
   useEffect(() => {
     if (!profile) return;
@@ -201,7 +212,7 @@ export default function DailyTracker() {
       !parsed.some((log: any) => log.id === l.id)
     );
     localStorage.setItem(getStorageKey('waterLogs'), JSON.stringify([...filtered, ...newLogs]));
-  }, [waterLogs, profile]);
+  }, [waterLogs, profile, getStorageKey]);
 
   const saveProfile = () => {
     if (!formData.email.trim()) {
@@ -269,8 +280,8 @@ export default function DailyTracker() {
 
   const getCombinedLogs = (): CombinedEntry[] => {
     const combined: CombinedEntry[] = [
-      ...logs,
-      ...waterLogs,
+      ...filteredLogs,
+      ...filteredWaterLogs,
     ];
     return combined.sort((a, b) => b.timestamp - a.timestamp);
   };
@@ -367,11 +378,15 @@ export default function DailyTracker() {
     water: dailyWater,
   };
 
-  const totalProtein = logs.reduce((sum, log) => sum + log.item.protein, 0);
-  const totalCarbs = logs.reduce((sum, log) => sum + log.item.carbs, 0);
-  const totalFat = logs.reduce((sum, log) => sum + log.item.fat, 0);
-  const totalCalories = logs.reduce((sum, log) => sum + log.item.calories, 0);
-  const totalWater = waterLogs.reduce((sum, log) => sum + log.amount, 0);
+  const filteredLogs = logs.filter(log => formatLocalDate(new Date(log.timestamp)) === selectedDateKey);
+  const filteredWaterLogs = waterLogs.filter(log => formatLocalDate(new Date(log.timestamp)) === selectedDateKey);
+  const selectedDateLabel = selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+  const totalProtein = filteredLogs.reduce((sum, log) => sum + log.item.protein, 0);
+  const totalCarbs = filteredLogs.reduce((sum, log) => sum + log.item.carbs, 0);
+  const totalFat = filteredLogs.reduce((sum, log) => sum + log.item.fat, 0);
+  const totalCalories = filteredLogs.reduce((sum, log) => sum + log.item.calories, 0);
+  const totalWater = filteredWaterLogs.reduce((sum, log) => sum + log.amount, 0);
 
   const proteinPercent = Math.min((totalProtein / dailyGoals.protein) * 100, 100);
   const carbsPercent = Math.min((totalCarbs / dailyGoals.carbs) * 100, 100);
@@ -403,7 +418,7 @@ export default function DailyTracker() {
   const statusBorder = overallPercent < 50 ? 'border-red-500' : overallPercent < 90 ? 'border-yellow-500' : 'border-green-500';
 
   const combinedLogs = getCombinedLogs();
-  const totalLogCount = logs.length + waterLogs.length;
+  const totalLogCount = filteredLogs.length + filteredWaterLogs.length;
 
   return (
     <div className="min-h-screen bg-slate-50 p-4">
@@ -432,7 +447,8 @@ export default function DailyTracker() {
         <div className={`${statusColor} border-4 ${statusBorder} rounded-lg p-6 mb-6`}>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-slate-800 mb-2">Today&apos;s Progress</h2>
+              <h2 className="text-xl font-semibold text-slate-800 mb-2">Progress for {selectedDateLabel}</h2>
+              <p className="text-sm text-slate-600 mb-3">Showing nutrition and water progress for this selected day.</p>
               <div className="text-3xl font-bold text-slate-700">
                 {Math.round(overallPercent)}%
               </div>
@@ -670,7 +686,7 @@ export default function DailyTracker() {
             </div>
 
             <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-slate-800 mb-4">Today&apos;s Log ({totalLogCount})</h3>
+              <h3 className="text-lg font-semibold text-slate-800 mb-4">Day Log ({totalLogCount})</h3>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {combinedLogs.length === 0 ? (
                   <p className="text-slate-500 text-center py-8">No logs yet. Add food or water to get started!</p>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Exercise {
   id: string;
@@ -27,7 +28,68 @@ const EXERCISE_LABELS = {
   swimming: '🏊 Swimming',
 };
 
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const startOfToday = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const isSameMonth = (left: Date, right: Date) => {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+};
+
+const isFutureDate = (dateStr: string) => {
+  const date = parseLocalDate(dateStr);
+  return date > startOfToday();
+};
+
+const calculateDailyCalories = (profile: { height: number; weight: number; age: number; gender: 'male' | 'female'; activityLevel: 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'extremely_active' }) => {
+  const { height, weight, age, gender, activityLevel } = profile;
+  let bmr = 0;
+
+  if (gender === 'male') {
+    bmr = 88.362 + (13.397 * weight) + (4.799 * height) - (5.677 * age);
+  } else {
+    bmr = 447.593 + (9.247 * weight) + (3.098 * height) - (4.330 * age);
+  }
+
+  const activityFactors = {
+    sedentary: 1.2,
+    lightly_active: 1.375,
+    moderately_active: 1.55,
+    very_active: 1.725,
+    extremely_active: 1.9,
+  };
+
+  return Math.round(bmr * activityFactors[activityLevel]);
+};
+
+const getProgressColor = (percent: number) => {
+  if (percent < 50) return '#ef4444';
+  if (percent < 90) return '#eab308';
+  return '#22c55e';
+};
+
+const getProgressTextColor = (percent: number) => {
+  if (percent < 50) return '#ffffff';
+  if (percent < 90) return '#1e293b';
+  return '#ffffff';
+};
+
 export default function MonthlyView() {
+  const router = useRouter();
+
   const [exercises, setExercises] = useState<Exercise[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -38,10 +100,12 @@ export default function MonthlyView() {
     }
   });
 
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [currentMonth, setCurrentMonth] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => formatLocalDate(new Date()));
   const [selectedExercise, setSelectedExercise] = useState<'boxing' | 'cycle' | 'gym' | 'walk' | 'swimming'>('gym');
   const [selectedIntensity, setSelectedIntensity] = useState<'low' | 'moderate' | 'high'>('moderate');
   const [selectedDuration, setSelectedDuration] = useState(30);
+  const todayKey = formatLocalDate(startOfToday());
   // Initial exercises are loaded via lazy useState initializer to avoid
   // calling setState synchronously inside an effect.
 
@@ -50,6 +114,9 @@ export default function MonthlyView() {
   }, [exercises]);
 
   const addExercise = () => {
+    if (isFutureDate(selectedDate)) {
+      return;
+    }
     const now = new Date();
     const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     const newExercise: Exercise = {
@@ -60,11 +127,11 @@ export default function MonthlyView() {
       date: selectedDate,
       time,
     };
-    setExercises([...exercises, newExercise]);
+    setExercises(currentExercises => [...currentExercises, newExercise]);
   };
 
   const removeExercise = (id: string) => {
-    setExercises(exercises.filter(e => e.id !== id));
+    setExercises(currentExercises => currentExercises.filter(e => e.id !== id));
   };
 
   const calculateCalories = (exercise: Exercise) => {
@@ -77,9 +144,8 @@ export default function MonthlyView() {
   };
 
   const getDaysInMonth = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth();
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
@@ -90,8 +156,8 @@ export default function MonthlyView() {
       days.push(null);
     }
     for (let i = 1; i <= daysInMonth; i++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-      days.push(dateStr);
+      const date = new Date(year, month, i);
+      days.push(formatLocalDate(date));
     }
     return days;
   };
@@ -100,16 +166,72 @@ export default function MonthlyView() {
     return getExercisesByDate(date).reduce((sum, ex) => sum + calculateCalories(ex), 0);
   };
 
-  const getMonthYearDisplay = () => {
-    const today = new Date();
-    return today.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-  };
-
   const selectedDateExercises = getExercisesByDate(selectedDate);
   const totalCaloriesSelected = selectedDateExercises.reduce((sum, ex) => sum + calculateCalories(ex), 0);
 
+  const getDailyProgressForDate = (dateStr: string) => {
+    if (typeof window === 'undefined') return 0;
+
+    try {
+      const savedProfile = localStorage.getItem('currentUser');
+      if (!savedProfile) return 0;
+
+      const profile = JSON.parse(savedProfile) as {
+        email: string;
+        height: number;
+        weight: number;
+        age: number;
+        gender: 'male' | 'female';
+        activityLevel: 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'extremely_active';
+      };
+
+      const savedNutritionLogs = localStorage.getItem(`nutritionLogs_${profile.email}`);
+      const savedWaterLogs = localStorage.getItem(`waterLogs_${profile.email}`);
+      const nutritionLogs = savedNutritionLogs ? JSON.parse(savedNutritionLogs) : [];
+      const waterLogs = savedWaterLogs ? JSON.parse(savedWaterLogs) : [];
+
+      const dailyCalories = calculateDailyCalories(profile);
+      const dailyWater = Math.round(profile.weight * 35);
+      const proteinGoal = Math.round(profile.weight * 1.6);
+      const carbsGoal = Math.round((dailyCalories * 0.45) / 4);
+      const fatGoal = Math.round((dailyCalories * 0.3) / 9);
+
+      const dayNutritionLogs = nutritionLogs.filter((log: any) => formatLocalDate(new Date(log.timestamp)) === dateStr);
+      const dayWaterLogs = waterLogs.filter((log: any) => formatLocalDate(new Date(log.timestamp)) === dateStr);
+
+      const totalProtein = dayNutritionLogs.reduce((sum: number, log: any) => sum + log.item.protein, 0);
+      const totalCarbs = dayNutritionLogs.reduce((sum: number, log: any) => sum + log.item.carbs, 0);
+      const totalFat = dayNutritionLogs.reduce((sum: number, log: any) => sum + log.item.fat, 0);
+      const totalCaloriesForDay = dayNutritionLogs.reduce((sum: number, log: any) => sum + log.item.calories, 0);
+      const totalWater = dayWaterLogs.reduce((sum: number, log: any) => sum + log.amount, 0);
+
+      const proteinPercent = Math.min((totalProtein / proteinGoal) * 100, 100);
+      const carbsPercent = Math.min((totalCarbs / carbsGoal) * 100, 100);
+      const fatPercent = Math.min((totalFat / fatGoal) * 100, 100);
+      const caloriesPercent = Math.min((totalCaloriesForDay / dailyCalories) * 100, 100);
+      const waterPercent = Math.min((totalWater / dailyWater) * 100, 100);
+
+      return (proteinPercent + carbsPercent + fatPercent + caloriesPercent + waterPercent) / 5;
+    } catch {
+      return 0;
+    }
+  };
+
+  const selectedDateProgress = getDailyProgressForDate(selectedDate);
+  const selectedDateHasProgress = selectedDateProgress > 0;
+  const selectedProgressColor = selectedDateHasProgress ? getProgressColor(selectedDateProgress) : '#cbd5e1';
+  const selectedProgressTextColor = selectedDateHasProgress ? getProgressTextColor(selectedDateProgress) : '#1e293b';
+
   const days = getDaysInMonth();
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthYearDisplay = currentMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const isCurrentMonth = isSameMonth(currentMonth, new Date());
+  const goToPreviousMonth = () => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  const goToNextMonth = () => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  const resetToCurrentMonth = () => {
+    setCurrentMonth(new Date());
+    setSelectedDate(todayKey);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 p-4">
@@ -119,7 +241,34 @@ export default function MonthlyView() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Calendar */}
           <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
-            <h2 className="text-2xl font-semibold text-slate-800 mb-4">{getMonthYearDisplay()}</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-semibold text-slate-800">{monthYearDisplay}</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={goToPreviousMonth}
+                  className="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                >
+                  ← Last month
+                </button>
+                <button
+                  onClick={resetToCurrentMonth}
+                  className="px-3 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={goToNextMonth}
+                  disabled={isCurrentMonth}
+                  className={`px-3 py-2 rounded-lg transition-colors ${
+                    isCurrentMonth
+                      ? 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Next month →
+                </button>
+              </div>
+            </div>
 
             {/* Day headers */}
             <div className="grid grid-cols-7 gap-2 mb-2">
@@ -138,35 +287,62 @@ export default function MonthlyView() {
                 }
                 const dayExercises = getExercisesByDate(dateStr);
                 const totalCalories = getTotalCaloriesForDate(dateStr);
+                const dayProgress = getDailyProgressForDate(dateStr);
                 const isSelected = dateStr === selectedDate;
-                const isToday = dateStr === new Date().toISOString().split('T')[0];
+                const isToday = dateStr === todayKey;
+                const future = isFutureDate(dateStr);
+                const progressColor = dayProgress > 0 ? getProgressColor(dayProgress) : undefined;
+                const progressTextColor = dayProgress > 0 ? getProgressTextColor(dayProgress) : undefined;
 
                 return (
                   <button
                     key={dateStr}
-                    onClick={() => setSelectedDate(dateStr)}
-                    className={`aspect-square p-2 rounded-lg border-2 transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-blue-500 bg-blue-50'
+                    onClick={() => {
+                      if (!future) {
+                        setSelectedDate(dateStr);
+                        router.push(`/?date=${dateStr}`);
+                      }
+                    }}
+                    disabled={future}
+                    style={
+                      !future && dayProgress > 0
+                        ? {
+                            backgroundColor: progressColor,
+                            color: progressTextColor,
+                          }
+                        : undefined
+                    }
+                    className={`aspect-square p-2 rounded-lg border-2 transition-all ${
+                      future
+                        ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : isSelected
+                        ? 'border-blue-500 cursor-pointer'
                         : isToday
-                        ? 'border-green-500 bg-green-50'
-                        : 'border-slate-200 bg-white'
-                    } hover:border-blue-400`}
+                        ? 'border-green-500 cursor-pointer'
+                        : 'border-slate-200 cursor-pointer hover:border-blue-400'
+                    }`}
                   >
                     <div className="h-full flex flex-col justify-between">
-                      <div className="text-sm font-semibold text-slate-800">
+                      <div className={`text-base font-bold ${future ? 'text-slate-400' : dayProgress > 0 && !isSelected ? '' : 'text-slate-800'}`}>
                         {dateStr.split('-')[2]}
                       </div>
+                      {dayProgress > 0 && (
+                        <div
+                          className="rounded-full px-1.5 py-0.5 text-[16px] font-bold"
+                          style={{
+                            backgroundColor: dayProgress > 0 ? 'rgba(255, 255, 255, 0.4)' : undefined,
+                            color: progressTextColor,
+                          }}
+                        >
+                          {Math.round(dayProgress)}%
+                        </div>
+                      )}
                       {totalCalories > 0 && (
-                        <div className="text-xs font-semibold text-orange-600">
+                        <div className={`text-[12px] font-semibold mt-2 ${future ? 'text-slate-400' : dayProgress > 0 && !isSelected ? '' : 'text-orange-600'}`}>
                           {totalCalories} cal
                         </div>
                       )}
-                      {dayExercises.length > 0 && (
-                        <div className="text-xs text-slate-600">
-                          {dayExercises.length} {dayExercises.length === 1 ? 'exercise' : 'exercises'}
-                        </div>
-                      )}
+                      
                     </div>
                   </button>
                 );
@@ -183,9 +359,12 @@ export default function MonthlyView() {
                 <input
                   type="date"
                   value={selectedDate}
+                  min={todayKey}
+                  max={todayKey}
                   onChange={(e) => setSelectedDate(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="mt-1 text-xs text-slate-500">Only today and past dates can be logged.</p>
               </div>
 
               <div>
@@ -263,7 +442,12 @@ export default function MonthlyView() {
 
               <button
                 onClick={addExercise}
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                disabled={isFutureDate(selectedDate)}
+                className={`w-full font-semibold py-2 px-4 rounded-lg transition-colors ${
+                  isFutureDate(selectedDate)
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
               >
                 Add Exercise
               </button>
@@ -275,14 +459,23 @@ export default function MonthlyView() {
         <div className="mt-6 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-800">
-              Exercises for {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+              Exercises for {parseLocalDate(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
             </h3>
-            {totalCaloriesSelected > 0 && (
-              <div className="text-2xl font-bold text-orange-600">
-                {totalCaloriesSelected} cal
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-slate-600">Daily progress</span>
+              <span
+                className="px-3 py-1 rounded-full text-sm font-bold"
+                style={{ backgroundColor: selectedProgressColor, color: selectedProgressTextColor }}
+              >
+                {selectedDateHasProgress ? `${Math.round(selectedDateProgress)}%` : 'No data'}
+              </span>
+            </div>
           </div>
+          {totalCaloriesSelected > 0 && (
+            <div className="mb-4 text-2xl font-bold text-orange-600">
+              {totalCaloriesSelected} cal
+            </div>
+          )}
 
           {selectedDateExercises.length === 0 ? (
             <p className="text-slate-500 text-center py-8">No exercises logged for this date.</p>
